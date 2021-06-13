@@ -18,7 +18,7 @@ class BayesLinear(ModuleWrapper):
         self.in_features = in_features
         self.out_features = out_features
         self.use_bias = bias
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0")
 
         if priors is None:
             priors = {
@@ -31,7 +31,6 @@ class BayesLinear(ModuleWrapper):
         self.prior_sigma = priors['prior_sigma']
         self.posterior_mu_initial = priors['posterior_mu_initial']
         self.posterior_rho_initial = priors['posterior_rho_initial']
-
 
         self.W_mu = Parameter(torch.Tensor(out_features, in_features))
         self.W_rho = Parameter(torch.Tensor(out_features, in_features))
@@ -66,7 +65,7 @@ class BayesLinear(ModuleWrapper):
         act_std = torch.sqrt(act_var)
 
         if self.training or sample:
-            eps = torch.FloatTensor(act_mu.size()).normal_(0, 1)
+            eps = torch.cuda.FloatTensor(act_mu.size()).normal_(0, 1)
             return act_mu + act_std * eps
         else:
             return act_mu

@@ -26,7 +26,7 @@ class BayesConv1d(ModuleWrapper):
         self.dilation = dilation
         self.groups = 1
         self.use_bias = bias
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0")
 
         if priors is None:
             priors = {
@@ -75,7 +75,7 @@ class BayesConv1d(ModuleWrapper):
         act_std = torch.sqrt(act_var)
 
         if self.training or sample:
-            eps = torch.FloatTensor(act_mu.size()).normal_(0, 1)
+            eps = torch.cuda.FloatTensor(act_mu.size()).normal_(0, 1)
             return act_mu + act_std * eps
         else:
             return act_mu
