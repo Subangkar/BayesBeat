@@ -40,11 +40,11 @@ class BayesConv1d(ModuleWrapper):
         self.posterior_mu_initial = priors['posterior_mu_initial']
         self.posterior_rho_initial = priors['posterior_rho_initial']
 
-        self.W_mu = Parameter(torch.Tensor(out_channels, in_channels, self.kernel_size[0]))
-        self.W_rho = Parameter(torch.Tensor(out_channels, in_channels, self.kernel_size[0]))
+        self.W_mu = Parameter(torch.empty((out_channels, in_channels, self.kernel_size[0]), device=self.device))
+        self.W_rho = Parameter(torch.empty((out_channels, in_channels, self.kernel_size[0]), device=self.device))
         if self.use_bias:
-            self.bias_mu = Parameter(torch.Tensor(out_channels))
-            self.bias_rho = Parameter(torch.Tensor(out_channels))
+            self.bias_mu = Parameter(torch.empty((out_channels), device=self.device))
+            self.bias_rho = Parameter(torch.empty((out_channels), device=self.device))
         else:
             self.register_parameter('bias_mu', None)
             self.register_parameter('bias_rho', None)
