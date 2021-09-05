@@ -1,9 +1,8 @@
 import torch
 
 import utils
-import wandb
 import os
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import numpy as np
 from dataloaders import loader
 from torch.nn import functional as F
@@ -15,10 +14,9 @@ ENSEMBLES = 1
 DEEPBEAT_DATA_PATH = "data/"
 
 
-def get_uncertainty(model, input_signal, T=15, normalized=False, single_segment=True):
+def get_uncertainty(model, input_signal, T=15, normalized=False):
     """
     Batchified version
-    `single_segment` is kept just only to maintain backward compatibility
     """
     # [b, 1, 800] -> [T*b, 1, 800]
     input_signals = torch.repeat_interleave(input_signal, T, dim=0)
@@ -45,7 +43,7 @@ def get_uncertainty(model, input_signal, T=15, normalized=False, single_segment=
 
     epistemics = np.zeros((temp.shape[0], 2))
     aleatorics = np.zeros((temp.shape[0], 2))
-    
+
     "Need to vectorize this loop"
     for b in range(temp.shape[0]):
         # [, 2, T] * [, T, 2] -> [, 2, 2]
@@ -58,51 +56,49 @@ def get_uncertainty(model, input_signal, T=15, normalized=False, single_segment=
         # [, 2, 2] -> [, 2]
         aleatorics[b] = np.diag(aleatoric)
 
-    if single_segment:
-        return torch.Tensor(p_bar), epistemics.reshape(2), aleatorics.reshape(2)
-    else:
-        return torch.Tensor(p_bar), epistemics, aleatorics
+    return torch.Tensor(p_bar).to(input_signal.device), epistemics, aleatorics
 
 
-def evaluate_with_uncertainity(model, generator, prefix='val_', wandb_log=False, uncertainity_bound=0.03):
+def evaluate_with_uncertainity(model, generator, prefix='val_', uncertainity_bound=0.05, device=torch.device('cpu')):
     # EVALUATE SIGNAL BY SIGNAL WITH UNCERTAINTY CALCULATION
 
-    sigs = np.empty((0, 800))
     REPEAT = 15
     stat_map_overall = {'tp': 0, 'fp': 0, 'fn': 0, 'tn': 0}
     output_map_all = {}
-    output_map_all['true'] = torch.empty((0, 2), device='cpu')
-    output_map_all['pred'] = torch.empty((0, 2), device='cpu')
+    output_map_all['true'] = torch.empty((0, 2), device=device)
+    output_map_all['pred'] = torch.empty((0, 2), device=device)
+    nAccepted = 0
+    nSamples = 0
 
     for i, batch in enumerate(tqdm(iter(generator))):
-        signal, qa, rhythm = batch
+        signal, _, rhythm = batch
         signal, rhythm = signal.to(device, non_blocking=True), rhythm.to(device, non_blocking=True)
-        if signal.shape[0] > 1:
-            raise Exception(
-                "Uncertainity requires batch size = 1 in current build, full paralleled batch support in future.")
+
+        nSamples += len(rhythm)
 
         log_outputs, ep, al = get_uncertainty(model, signal, REPEAT)
-        sigs = np.vstack((sigs, signal.cpu().numpy().reshape(1, 800)))
-        if al[1] > uncertainity_bound:
-            continue
+        if uncertainity_bound > 0:
+            mask = al[:, 1] < uncertainity_bound
+            log_outputs = log_outputs[mask]
+            rhythm = rhythm[mask]
+            if len(log_outputs) == 0:
+                continue
 
+        nAccepted += len(rhythm)
         stat_map_batch = utils.batch_stat_deepbeat(rhythm_true=rhythm, rhythm_pred=log_outputs)
         utils.accumulate_stat(stat_map=stat_map_overall, **stat_map_batch)
         utils.accumulate_responses(output_map_all, rhythm, log_outputs)
 
     metrics_map = utils.metrics_from_stat(**stat_map_overall, prefix=prefix, output_map_all=output_map_all)
-
+    metrics_map["coverage"] = nAccepted / float(nSamples)
     utils.print_stat_map(metrics_map)
-
-    if wandb_log:
-        wandb.log(metrics_map)
     return metrics_map[prefix + 'F1']
 
 
 if __name__ == '__main__':
     model = Bayesian_Deepbeat()
 
-    device = 'cpu'
+    device = 'cuda:0'
     print("Device: " + device)
 
     # BATCH_SIZE SHOULD BE 1 IN CURRENT BUILD. FULL MINIBATCH INFERENCE WILL BE ADDED IN FUTURE.
